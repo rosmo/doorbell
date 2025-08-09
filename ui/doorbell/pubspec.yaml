@@ -1,0 +1,40 @@
+name: doorbell
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.5
+  network_info_plus: ^6.1.4
+  permission_handler: ^12.0.1
+  one_clock: ^2.0.2
+  flutter_inappwebview: ^6.2.0-beta.2
+  share_plus: any
+  url_launcher: any
+  flutter_onscreen_keyboard: ^0.3.0+1
+  wifi_scan_windows: ^0.0.3
+  dbus_wifi: ^0.0.6
+  shared_preferences: ^2.5.3
+  focus_detector: ^2.0.1
+
+  #flutter_linux_webview: ^0.1.0
+  #webview_flutter: ^3.0.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Raleway
+      fonts:
+        - asset: fonts/Raleway-Regular.ttf
+        - asset: fonts/Raleway-Italic.ttf
+          style: italic
