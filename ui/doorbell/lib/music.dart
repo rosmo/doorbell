@@ -1,14 +1,11 @@
 import 'package:audio_session/audio_session.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:glob/list_local_fs.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:glob/glob.dart';
-import 'package:glob/list_local_fs.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
-import 'dart:developer' as developer;
 import 'package:path/path.dart' as p;
 import 'package:m3u_nullsafe/m3u_nullsafe.dart';
 
@@ -209,7 +206,7 @@ class MusicState extends State<Music> {
                             metadata.title,
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
-                          Text('${state!.currentIndex! + 1}/${playlistLength}'),
+                          Text('${state!.currentIndex! + 1}/$playlistLength'),
                         ],
                       );
                     },

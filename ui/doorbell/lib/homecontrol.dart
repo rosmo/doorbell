@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'dart:io';
 import 'homecontrol_windows.dart';
+import 'homecontrol_linux.dart';
 import 'package:focus_detector/focus_detector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,7 +15,7 @@ class HomeControl extends StatefulWidget {
 
 class HomeControlState extends State<HomeControl> {
   HomeControlWindows? webviewWindows;
-  HomeControlWindows? webviewLinux;
+  HomeControlLinux? webviewLinux;
 
   Future<String> updateUrlToLoad() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -45,7 +46,7 @@ class HomeControlState extends State<HomeControl> {
                   );
                 }
                 if (Platform.isLinux) {
-                  webviewLinux = HomeControlWindows(
+                  webviewLinux = HomeControlLinux(
                     url: url.data ?? 'about:blank',
                   );
                 }

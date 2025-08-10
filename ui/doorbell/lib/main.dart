@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:one_clock/one_clock.dart';
 import 'package:flutter_onscreen_keyboard/flutter_onscreen_keyboard.dart';
 import 'media_kit_stub.dart' if (dart.library.io) 'media_kit_impl.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_linux_webview/flutter_linux_webview.dart';
 
 import 'dart:io';
 import 'settings.dart';
@@ -22,6 +24,17 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   initMediaKit(); // Initialise just_audio_media_kit for Linux/Windows.
 
+  if (Platform.isLinux) {
+    LinuxWebViewPlugin.initialize(
+      options: <String, String?>{
+        'user-agent': 'Doorbell',
+        'remote-debugging-port': '8888',
+        'autoplay-policy': 'no-user-gesture-required',
+      },
+    );
+
+    WebView.platform = LinuxWebView();
+  }
   runApp(const MainApp());
 }
 

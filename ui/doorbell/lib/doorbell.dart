@@ -50,7 +50,7 @@ class DoorBellState extends State<DoorBell> {
                   ),
                   const SizedBox(
                     height: 20,
-                    child: const Divider(
+                    child: Divider(
                       thickness: 4,
                       height: 40,
                       color: Colors.blue,
