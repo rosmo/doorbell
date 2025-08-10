@@ -3,11 +3,10 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:wifi_scan_windows/available_network.dart';
 import 'package:wifi_scan_windows/wifi_scan_windows.dart';
 import 'package:flutter_onscreen_keyboard/flutter_onscreen_keyboard.dart';
-
+import 'package:filesystem_picker/filesystem_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:developer' as developer;
 import 'dart:io';
-
-import 'package:shared_preferences/shared_preferences.dart';
 
 Future<Map<String, String?>> getNetworkInfo() async {
   final NetworkInfo networkInfo = NetworkInfo();
@@ -64,6 +63,10 @@ class SettingsState extends State<Settings> {
   String currentNetwork = '';
   SharedPreferences? prefs;
   final homeAssistantUrlController = TextEditingController();
+  final homeAssistantApiUrlController = TextEditingController();
+  final homeAssistantTokenController = TextEditingController();
+  final wifiPasswordController = TextEditingController();
+  final musicDirectoryController = TextEditingController();
 
   @override
   void initState() {
@@ -71,11 +74,35 @@ class SettingsState extends State<Settings> {
     populateNetworks();
     setCurrentNetwork();
     populateHomeAssistantUrl();
+    populateHomeAssistantApiUrl();
+    populateHomeAssistantToken();
+    populateWifiPassword();
+    populateMusicDirectory();
 
     homeAssistantUrlController.addListener(() async {
       prefs = await SharedPreferences.getInstance();
       final text = homeAssistantUrlController.text;
       prefs!.setString('homeAssistantUrl', text);
+    });
+    homeAssistantApiUrlController.addListener(() async {
+      prefs = await SharedPreferences.getInstance();
+      final text = homeAssistantApiUrlController.text;
+      prefs!.setString('homeAssistantApiUrl', text);
+    });
+    homeAssistantTokenController.addListener(() async {
+      prefs = await SharedPreferences.getInstance();
+      final text = homeAssistantTokenController.text;
+      prefs!.setString('homeAssistantToken', text);
+    });
+    wifiPasswordController.addListener(() async {
+      prefs = await SharedPreferences.getInstance();
+      final text = wifiPasswordController.text;
+      prefs!.setString('wifiPassword', text);
+    });
+    musicDirectoryController.addListener(() async {
+      prefs = await SharedPreferences.getInstance();
+      final text = musicDirectoryController.text;
+      prefs!.setString('musicDirectory', text);
     });
   }
 
@@ -84,6 +111,11 @@ class SettingsState extends State<Settings> {
     // Clean up the controller when the widget is removed from the widget tree.
     // This also removes the _printLatestValue listener.
     homeAssistantUrlController.dispose();
+    homeAssistantApiUrlController.dispose();
+    homeAssistantTokenController.dispose();
+    wifiPasswordController.dispose();
+    musicDirectoryController.dispose();
+
     super.dispose();
   }
 
@@ -92,6 +124,38 @@ class SettingsState extends State<Settings> {
     var url = prefs!.getString('homeAssistantUrl');
     setState(() {
       homeAssistantUrlController.value = TextEditingValue(text: url ?? '');
+    });
+  }
+
+  Future<void> populateHomeAssistantApiUrl() async {
+    prefs = await SharedPreferences.getInstance();
+    var url = prefs!.getString('homeAssistantApiUrl');
+    setState(() {
+      homeAssistantApiUrlController.value = TextEditingValue(text: url ?? '');
+    });
+  }
+
+  Future<void> populateHomeAssistantToken() async {
+    prefs = await SharedPreferences.getInstance();
+    var url = prefs!.getString('homeAssistantToken');
+    setState(() {
+      homeAssistantTokenController.value = TextEditingValue(text: url ?? '');
+    });
+  }
+
+  Future<void> populateWifiPassword() async {
+    prefs = await SharedPreferences.getInstance();
+    var url = prefs!.getString('wifiPassword');
+    setState(() {
+      wifiPasswordController.value = TextEditingValue(text: url ?? '');
+    });
+  }
+
+  Future<void> populateMusicDirectory() async {
+    prefs = await SharedPreferences.getInstance();
+    var url = prefs!.getString('musicDirectory');
+    setState(() {
+      musicDirectoryController.value = TextEditingValue(text: url ?? '');
     });
   }
 
@@ -130,57 +194,123 @@ class SettingsState extends State<Settings> {
       margin: const EdgeInsets.all(20.0),
       child: Padding(
         padding: const EdgeInsets.all(20.0),
-        child: Column(
-          spacing: 16.0,
-          children: [
-            Text(
-              'Home Assistant settings',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24.0),
-            ),
-            OnscreenKeyboardTextField(
-              controller: homeAssistantUrlController,
-              obscureText: false,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'Home Assistant URL',
+        child: SingleChildScrollView(
+          child: Column(
+            spacing: 16.0,
+            children: [
+              Text(
+                'Network connection',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24.0),
               ),
-            ),
-            Text(
-              'Network connection',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24.0),
-            ),
-            DropdownButton<String>(
-              value: currentNetwork,
-              items: networks.map<DropdownMenuItem<String>>((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
-              onChanged: (String? newValue) {
-                setState(() {
-                  currentNetwork = newValue!;
-                });
-              },
-              hint: Text(
-                'Select a WiFI network to connect to',
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+              ElevatedButton(
+                onPressed: () async {
+                  List<String> foundNetworks = await scanWifiAccessPoints();
+                  setState(() {
+                    networks = foundNetworks;
+                  });
+                },
+                child: const Text('Scan for networks'),
+              ),
+              DropdownButton<String>(
+                value: currentNetwork,
+                items: networks.map<DropdownMenuItem<String>>((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
+                onChanged: (String? newValue) {
+                  setState(() {
+                    currentNetwork = newValue!;
+                  });
+                },
+                hint: Text(
+                  'Select a WiFI network to connect to',
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                List<String> foundNetworks = await scanWifiAccessPoints();
-                setState(() {
-                  networks = foundNetworks;
-                });
-              },
-              child: const Text('Scan for networks'),
-            ),
-          ],
+              OnscreenKeyboardTextField(
+                controller: wifiPasswordController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Wifi password',
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () async {},
+                child: const Text('Connect to network'),
+              ),
+              Text(
+                'Music control settings',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24.0),
+              ),
+              OnscreenKeyboardTextField(
+                controller: musicDirectoryController,
+                obscureText: false,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Music directory',
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  String? path = await FilesystemPicker.open(
+                    title: 'Select music folder',
+                    context: context,
+                    rootDirectory: Platform.isLinux
+                        ? Directory('/')
+                        : Directory('C:\\'),
+                    fsType: FilesystemType.folder,
+                    pickText: 'Use this folder for music',
+                  );
+                  setState(() {
+                    musicDirectoryController.value = TextEditingValue(
+                      text: path ?? '',
+                    );
+                  });
+                },
+                child: const Text('Pick directory'),
+              ),
+              Text('Place M3U playlists in a subdirectory called "Playlists".'),
+              Text(
+                'Home control settings',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24.0),
+              ),
+              OnscreenKeyboardTextField(
+                controller: homeAssistantUrlController,
+                obscureText: false,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Home control URL',
+                ),
+              ),
+              Text(
+                'Home Assistant settings',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24.0),
+              ),
+              OnscreenKeyboardTextField(
+                controller: homeAssistantApiUrlController,
+                obscureText: false,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Home Assistant API URL',
+                ),
+              ),
+              OnscreenKeyboardTextField(
+                controller: homeAssistantTokenController,
+                obscureText: false,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Home Assistant token',
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

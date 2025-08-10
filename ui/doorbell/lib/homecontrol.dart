@@ -4,7 +4,6 @@ import 'dart:io';
 import 'homecontrol_windows.dart';
 import 'package:focus_detector/focus_detector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:developer' as developer;
 
 class HomeControl extends StatefulWidget {
   const HomeControl({super.key});

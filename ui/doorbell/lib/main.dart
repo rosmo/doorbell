@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:one_clock/one_clock.dart';
 import 'package:flutter_onscreen_keyboard/flutter_onscreen_keyboard.dart';
+import 'media_kit_stub.dart' if (dart.library.io) 'media_kit_impl.dart';
 
 import 'dart:io';
 import 'settings.dart';
 import 'homecontrol.dart';
+import 'doorbell.dart';
+import 'music.dart';
 
 void _enablePlatformOverrideForDesktop() {
   if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
@@ -17,6 +20,8 @@ void _enablePlatformOverrideForDesktop() {
 void main() {
   _enablePlatformOverrideForDesktop();
   WidgetsFlutterBinding.ensureInitialized();
+  initMediaKit(); // Initialise just_audio_media_kit for Linux/Windows.
+
   runApp(const MainApp());
 }
 
@@ -33,16 +38,16 @@ class MainApp extends StatelessWidget {
       create: (context) => AppState(),
       child: MaterialApp(
         builder: OnscreenKeyboard.builder(
-          aspectRatio: 16.0 / 9.0,
+          aspectRatio: 1.5, //16.0 / 9.0,
           layout: const MobileKeyboardLayout(),
-          width: (context) => MediaQuery.sizeOf(context).width / 2,
-          // ...more options
+          width: (context) => MediaQuery.sizeOf(context).width / 1.8,
+          showControlBar: true,
         ),
         title: 'Doorbell',
         theme: ThemeData(
           fontFamily: 'Raleway',
           colorScheme: ColorScheme.fromSeed(
-            seedColor: Colors.deepOrange,
+            seedColor: Colors.lightGreen,
             brightness: Brightness.dark,
           ),
         ),
@@ -63,6 +68,9 @@ class HomePageState extends State<HomePage> {
   int currentPageIndex = 0;
   String _connectionStatus = 'Unknown';
   DateTime dateTime = DateTime.now();
+  final pageController = PageController(initialPage: 0, keepPage: true);
+  ShapeBorder indicatorShape = RoundedRectangleBorder();
+  final double navIconSize = 48.0;
 
   @override
   void initState() {
@@ -84,107 +92,104 @@ class HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: DigitalClock(
-          format: 'MMMM d, y H:m:s',
-          datetime: dateTime,
-          textScaleFactor: 1,
-          showSeconds: false,
-          isLive: true,
-          digitalClockTextColor: Colors.amber,
-          padding: const EdgeInsets.symmetric(horizontal: 80, vertical: 10),
-          decoration: const BoxDecoration(
-            //color: Colors.black,
-            //shape: BoxShape.rectangle,
-            //borderRadius: BorderRadius.all(Radius.zero),
-          ),
+    return SafeArea(
+      minimum: const EdgeInsets.all(32.0),
+      child: Scaffold(
+        body: Row(
+          children: <Widget>[
+            NavigationRail(
+              minWidth: 200.0,
+              backgroundColor: Colors.green.shade900,
+              selectedIndex: currentPageIndex,
+              groupAlignment: -1.0,
+              onDestinationSelected: (int index) {
+                setState(() {
+                  currentPageIndex = index;
+                });
+              },
+              labelType: NavigationRailLabelType.all,
+              leading: Card(
+                color: Colors.green.shade800,
+                margin: const EdgeInsets.all(8.0),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 20),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.wifi),
+                      label: Text(_connectionStatus),
+                      onPressed: () {},
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          width: 3.0,
+                          color: Colors.lightGreenAccent,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    DigitalClock(
+                      format: 'MMMM d, y\nHH:mm:ss',
+                      datetime: dateTime,
+                      textScaleFactor: 1,
+                      showSeconds: false,
+                      isLive: true,
+                      digitalClockTextColor: Colors.lightGreenAccent,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 80,
+                        vertical: 10,
+                      ),
+                      decoration: const BoxDecoration(
+                        //color: Colors.black,
+                        //shape: BoxShape.rectangle,
+                        //borderRadius: BorderRadius.all(Radius.zero),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+              destinations: <NavigationRailDestination>[
+                NavigationRailDestination(
+                  padding: const EdgeInsets.all(12.0),
+                  icon: Icon(Icons.doorbell_outlined, size: navIconSize),
+                  selectedIcon: Icon(Icons.doorbell, size: navIconSize),
+                  label: Text('Doorbell'),
+                  indicatorShape: indicatorShape,
+                ),
+                NavigationRailDestination(
+                  padding: const EdgeInsets.all(12.0),
+                  icon: Icon(Icons.light_outlined, size: navIconSize),
+                  selectedIcon: Icon(Icons.light, size: navIconSize),
+                  label: Text('Home control'),
+                  indicatorShape: indicatorShape,
+                ),
+                NavigationRailDestination(
+                  padding: const EdgeInsets.all(12.0),
+                  icon: Icon(Icons.music_note_outlined, size: navIconSize),
+                  selectedIcon: Icon(Icons.music_note, size: navIconSize),
+                  label: Text('Music'),
+                  indicatorShape: indicatorShape,
+                ),
+                NavigationRailDestination(
+                  padding: const EdgeInsets.all(12.0),
+                  icon: Icon(Icons.settings_outlined, size: navIconSize),
+                  selectedIcon: Icon(Icons.settings, size: navIconSize),
+                  label: Text('Settings'),
+                  indicatorShape: indicatorShape,
+                ),
+              ],
+            ),
+            const VerticalDivider(thickness: 2, width: 2),
+            // This is the main content.
+            Expanded(
+              child: <Widget>[
+                DoorBell(),
+                HomeControl(),
+                Music(),
+                Settings(),
+              ][currentPageIndex],
+            ),
+          ],
         ),
-        actions: <Widget>[
-          OutlinedButton.icon(
-            icon: const Icon(Icons.wifi),
-            label: Text(_connectionStatus),
-            onPressed: () {},
-          ),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        onDestinationSelected: (int index) {
-          setState(() {
-            currentPageIndex = index;
-          });
-        },
-        indicatorColor: Colors.amber,
-        selectedIndex: currentPageIndex,
-        destinations: const <Widget>[
-          NavigationDestination(
-            selectedIcon: Icon(Icons.doorbell),
-            icon: Icon(Icons.doorbell_outlined),
-            label: 'Doorbell',
-          ),
-          NavigationDestination(
-            //icon: Badge(child: Icon(Icons.light)),
-            icon: Icon(Icons.light),
-            label: 'Home control',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.music_note_outlined),
-            label: 'Music',
-          ),
-          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
-        ],
-      ),
-      body: <Widget>[
-        DoorBell(),
-        HomeControl(),
-        Music(),
-        Settings(),
-      ][currentPageIndex],
-    );
-  }
-}
-
-class DoorBell extends StatefulWidget {
-  const DoorBell({super.key});
-
-  @override
-  State<DoorBell> createState() => DoorBellState();
-}
-
-class DoorBellState extends State<DoorBell> {
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-
-    return Card(
-      shadowColor: Colors.transparent,
-      margin: const EdgeInsets.all(8.0),
-      child: SizedBox.expand(
-        child: Center(
-          child: Text('Doorbell', style: theme.textTheme.titleLarge),
-        ),
-      ),
-    );
-  }
-}
-
-class Music extends StatefulWidget {
-  const Music({super.key});
-
-  @override
-  State<Music> createState() => MusicState();
-}
-
-class MusicState extends State<Music> {
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-
-    return Card(
-      shadowColor: Colors.transparent,
-      margin: const EdgeInsets.all(8.0),
-      child: SizedBox.expand(
-        child: Center(child: Text('Music', style: theme.textTheme.titleLarge)),
       ),
     );
   }
