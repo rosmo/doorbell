@@ -37,6 +37,11 @@ func main() {
 	}
 	slog.Info("Listening on D-Bus...")
 
+	slog.Info("Starting HTTP server on port 80...")
+	err = bell.StartHttpServer(80)
+	if err != nil {
+		panic(err)
+	}
 	if *simulatePtr {
 		slog.Info("Simulation mode active, press O to open door, R to simulate ring, ^C to terminate")
 		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))

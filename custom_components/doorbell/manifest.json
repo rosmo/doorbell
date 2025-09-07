@@ -1,0 +1,14 @@
+{
+  "domain": "doorbell",
+  "name": "Doorbell",
+  "codeowners": [
+    "@rosmo"
+  ],
+  "documentation": "https://github.com/rosmo/doorbell",
+  "iot_class": "cloud_polling",
+  "loggers": [
+    "custom_components.doorbell"
+  ],
+  "single_config_entry": true,
+  "version": "2025.6.1"
+}

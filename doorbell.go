@@ -1,6 +1,7 @@
 package doorbell
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	chi "github.com/go-chi/chi/v5"
+	middleware "github.com/go-chi/chi/v5/middleware"
 	dbus "github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 	gpiocdev "github.com/warthog618/go-gpiocdev"
@@ -36,17 +39,26 @@ type Doorbell struct {
 	HomeAssistantApiUrl   string
 	HomeAssistantApiToken string
 	HomeAssistantEntity   string
+	ApiToken              string
 
 	Ringer *gpiocdev.Line
 	Opener *gpiocdev.Line
 
+	LastRing      time.Time
+	RingDoneTimer *time.Timer
+
 	DBusConnection *dbus.Conn
 	Http           *http.Client
+	HttpServer     *http.Server
 }
 
 type HomeAssistantEntity struct {
 	State      string            `json:"state"`
 	Attributes map[string]string `json:"attributes,omitempty"`
+}
+
+type ConfigRequest struct {
+	SirenEntityId string `json:"siren_entity_id"`
 }
 
 func NewDoorbell(config string, opener string, ringer string, simulate bool) *Doorbell {
@@ -55,6 +67,7 @@ func NewDoorbell(config string, opener string, ringer string, simulate bool) *Do
 		RingerGpioName: ringer,
 		OpenerGpioName: opener,
 		Simulate:       simulate,
+		LastRing:       time.Now(),
 	}
 }
 
@@ -68,7 +81,7 @@ func (bell *Doorbell) LoadConfiguration() error {
 
 	bell.HomeAssistantApiUrl = cfg.Section("").Key("homeassistant_api_url").String()
 	bell.HomeAssistantApiToken = cfg.Section("").Key("homeassistant_api_token").String()
-	bell.HomeAssistantEntity = cfg.Section("").Key("homeassistant_entity_id").String()
+	bell.ApiToken = cfg.Section("").Key("api_token").String()
 
 	bell.Http = &http.Client{}
 	bell.UpdateHomeAssistantEntity("off")
@@ -83,6 +96,7 @@ func (bell *Doorbell) homeAssistantRequest(method string, path string, body stri
 		bodyReader = strings.NewReader(body)
 	}
 
+	slog.Info(fmt.Sprintf("Calling %s %s...", method, url))
 	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
 		return nil, err
@@ -98,6 +112,10 @@ func (bell *Doorbell) homeAssistantRequest(method string, path string, body stri
 }
 
 func (bell *Doorbell) UpdateHomeAssistantEntity(state string) error {
+	if bell.HomeAssistantEntity == "" {
+		return nil
+	}
+
 	entity := HomeAssistantEntity{
 		State:      state,
 		Attributes: map[string]string{},
@@ -114,23 +132,50 @@ func (bell *Doorbell) UpdateHomeAssistantEntity(state string) error {
 }
 
 func (bell *Doorbell) RingEvent() error {
-	slog.Info("Door ringing!")
+	now := time.Now()
+	sinceLastRing := now.Sub(bell.LastRing)
+	if sinceLastRing > (5 * time.Second) {
+		slog.Info("Door ringing!")
 
-	err := bell.DBusConnection.Emit("/com/github/rosmo/Doorbell", "com.github.rosmo.Doorbell.BellRinging")
-	if err != nil {
-		return err
+		err := bell.DBusConnection.Emit("/com/github/rosmo/Doorbell", "com.github.rosmo.Doorbell.BellRinging")
+		if err != nil {
+			return err
+		}
+
+		bell.UpdateHomeAssistantEntity("on")
+
+		// Schedule a timer to stop ringing after 5 seconds
+		if bell.RingDoneTimer == nil {
+			bell.RingDoneTimer = time.NewTimer(5 * time.Second)
+			go func() {
+				<-bell.RingDoneTimer.C
+				err := bell.RingEventFinished()
+				if err != nil {
+					slog.Error("An error was encountered processing ring finished timer!", "error", err)
+				}
+				bell.RingDoneTimer = nil
+			}()
+		}
+	} else {
+		slog.Warn("Supressed superfluous ringing start event...")
 	}
-
-	bell.UpdateHomeAssistantEntity("on")
-
 	return nil
 }
 
 func (bell *Doorbell) RingEventFinished() error {
-	slog.Info("Door not ringing anymore.")
+	now := time.Now()
+	sinceLastRing := now.Sub(bell.LastRing)
+	if sinceLastRing > (2 * time.Second) {
+		if bell.RingDoneTimer != nil {
+			slog.Info("Ringing done time already running, allowing it to finish the task.")
+			return nil
+		}
+		slog.Info("Door not ringing anymore.")
 
-	bell.UpdateHomeAssistantEntity("off")
-
+		bell.UpdateHomeAssistantEntity("off")
+	} else {
+		slog.Warn("Supressed superfluous ringing stop event...")
+	}
 	return nil
 }
 
@@ -146,7 +191,7 @@ func (bell *Doorbell) OpenDoor() *dbus.Error {
 	return nil
 }
 
-func (bell *Doorbell) Close() error {
+func (bell *Doorbell) DBusClose() error {
 	bell.DBusConnection.Close()
 	return nil
 }
@@ -169,6 +214,7 @@ func (bell *Doorbell) SendDesktopNotification(title string, notification string,
 }
 
 func (bell *Doorbell) SetupDBus() (err error) {
+	slog.Info("Registering doorbell on D-Bus...")
 	bell.DBusConnection, err = dbus.ConnectSessionBus()
 	if err != nil {
 		return err
@@ -192,7 +238,13 @@ func (bell *Doorbell) SetupDBus() (err error) {
 		return fmt.Errorf("Name already taken in D-Bus!")
 	}
 
-	bell.SendDesktopNotification("Doorbell", "Doorbell control daemon started.", 2500)
+	/*
+		go func() {
+			slog.Info("Sending startup notification...")
+			bell.SendDesktopNotification("Doorbell", "Doorbell control daemon started.", 2500)
+			slog.Info("Notification sent!")
+		}()
+	*/
 
 	return nil
 }
@@ -200,7 +252,6 @@ func (bell *Doorbell) SetupDBus() (err error) {
 func (bell *Doorbell) RingerHandler(evt gpiocdev.LineEvent) {
 	if evt.Type == gpiocdev.LineEventFallingEdge {
 		bell.RingEvent()
-
 	} else {
 		bell.RingEventFinished()
 	}
@@ -213,6 +264,8 @@ func (bell *Doorbell) SetupGpio() error {
 	// Probe chips
 	chips := gpiocdev.Chips()
 	slog.Info("Probing GPIO chips...")
+
+AllProbed:
 	for _, chip := range chips {
 		slog.Info(fmt.Sprintf("Probing GPIO chip: %s", chip))
 		c, err := gpiocdev.NewChip(chip)
@@ -221,6 +274,9 @@ func (bell *Doorbell) SetupGpio() error {
 			continue
 		}
 		for line := range c.Lines() {
+			if bell.Ringer != nil && bell.Opener != nil {
+				break AllProbed
+			}
 			lineInfo, err := c.LineInfo(line)
 			if err != nil {
 				slog.Warn(fmt.Sprintf("Unable to get info for line %d (chip %s)", line, chip))
@@ -247,5 +303,70 @@ func (bell *Doorbell) SetupGpio() error {
 		}
 	}
 
+	return nil
+}
+
+func (bell *Doorbell) StartHttpServer(port int) error {
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(bell.TokenValidatorMiddleware)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Doorbell API"))
+	})
+	r.Post("/configure", func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		var t ConfigRequest
+		err := decoder.Decode(&t)
+		if err == nil {
+			slog.Info(fmt.Sprintf("Updating siren entity to: %s", t.SirenEntityId))
+			bell.HomeAssistantEntity = t.SirenEntityId
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("{ \"ok\": true }"))
+		} else {
+			http.Error(w, fmt.Sprintf("Failed to decode configuration request: %v", err), 400)
+		}
+	})
+	r.Post("/opendoor", func(w http.ResponseWriter, r *http.Request) {
+		err := bell.OpenDoor()
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("{ \"ok\": true }"))
+		} else {
+			http.Error(w, fmt.Sprintf("Failed to open door: %v", err), 500)
+		}
+	})
+	bell.HttpServer = &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: r,
+	}
+	go func() {
+		if err := bell.HttpServer.ListenAndServe(); err != http.ErrServerClosed {
+			slog.Error("Error starting web server", "error", err)
+		}
+	}()
+	return nil
+}
+
+func (bell *Doorbell) TokenValidatorMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		authorization := r.Header.Get("Authorization")
+		if authorization == "" {
+			http.Error(rw, "Forbidden, check your bearer token", 403)
+			return
+		}
+
+		tokenSplit := strings.SplitN(authorization, " ", 2)
+		if len(tokenSplit) < 2 || tokenSplit[1] != bell.ApiToken {
+			http.Error(rw, "Forbidden, check your bearer token", 403)
+			return
+		}
+		next.ServeHTTP(rw, r)
+	})
+}
+
+func (bell *Doorbell) StopHttpServer() error {
+	if err := bell.HttpServer.Shutdown(context.TODO()); err != nil {
+		return err
+	}
 	return nil
 }

@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/djthorpe/go-errors v1.0.3 // indirect
+	github.com/go-chi/chi/v5 v5.2.3 // indirect
 	github.com/gobuffalo/envy v1.10.2 // indirect
 	github.com/gobuffalo/packd v1.0.2 // indirect
 	github.com/gobuffalo/packr v1.30.1 // indirect
