@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ type Doorbell struct {
 	HomeAssistantApiToken string
 	HomeAssistantEntity   string
 	ApiToken              string
+	ApiUrl                string
 
 	Ringer *gpiocdev.Line
 	Opener *gpiocdev.Line
@@ -55,6 +57,11 @@ type Doorbell struct {
 type HomeAssistantEntity struct {
 	State      string            `json:"state"`
 	Attributes map[string]string `json:"attributes,omitempty"`
+}
+
+type HomeAssistantRingEvent struct {
+	EntityId       string `json:"entity_id"`
+	CameraImageUrl string `json:"camera_image_url,omitempty"`
 }
 
 type ConfigRequest struct {
@@ -82,6 +89,7 @@ func (bell *Doorbell) LoadConfiguration() error {
 	bell.HomeAssistantApiUrl = cfg.Section("").Key("homeassistant_api_url").String()
 	bell.HomeAssistantApiToken = cfg.Section("").Key("homeassistant_api_token").String()
 	bell.ApiToken = cfg.Section("").Key("api_token").String()
+	bell.ApiUrl = cfg.Section("").Key("api_url").String()
 
 	bell.Http = &http.Client{}
 	bell.UpdateHomeAssistantEntity("off")
@@ -114,6 +122,21 @@ func (bell *Doorbell) homeAssistantRequest(method string, path string, body stri
 func (bell *Doorbell) UpdateHomeAssistantEntity(state string) error {
 	if bell.HomeAssistantEntity == "" {
 		return nil
+	}
+
+	if state == "on" {
+		event := HomeAssistantRingEvent{
+			EntityId:       bell.HomeAssistantEntity,
+			CameraImageUrl: fmt.Sprintf("%s/cameraimage", bell.ApiUrl),
+		}
+		eventBody, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		_, err = bell.homeAssistantRequest("POST", fmt.Sprintf("events/doorbell_ringing"), string(eventBody))
+		if err != nil {
+			return err
+		}
 	}
 
 	entity := HomeAssistantEntity{
@@ -313,6 +336,16 @@ func (bell *Doorbell) StartHttpServer(port int) error {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Doorbell API"))
 	})
+	r.Get("/cameraimage", func(w http.ResponseWriter, r *http.Request) {
+		image, err := os.ReadFile("testimage.jpg")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get camera image: %v", err), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(image)))
+		w.Write(image)
+	})
 	r.Post("/configure", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		var t ConfigRequest
@@ -349,16 +382,18 @@ func (bell *Doorbell) StartHttpServer(port int) error {
 
 func (bell *Doorbell) TokenValidatorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		authorization := r.Header.Get("Authorization")
-		if authorization == "" {
-			http.Error(rw, "Forbidden, check your bearer token", 403)
-			return
-		}
+		if r.URL.Path != "/" && r.URL.Path != "/cameraimage" {
+			authorization := r.Header.Get("Authorization")
+			if authorization == "" {
+				http.Error(rw, "Forbidden, check your bearer token", 403)
+				return
+			}
 
-		tokenSplit := strings.SplitN(authorization, " ", 2)
-		if len(tokenSplit) < 2 || tokenSplit[1] != bell.ApiToken {
-			http.Error(rw, "Forbidden, check your bearer token", 403)
-			return
+			tokenSplit := strings.SplitN(authorization, " ", 2)
+			if len(tokenSplit) < 2 || tokenSplit[1] != bell.ApiToken {
+				http.Error(rw, "Forbidden, check your bearer token", 403)
+				return
+			}
 		}
 		next.ServeHTTP(rw, r)
 	})

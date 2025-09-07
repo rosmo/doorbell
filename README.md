@@ -44,26 +44,28 @@ doorbell:
 ### Sample automation
 
 ```yaml
-alias: Doorbell testing
+alias: Doorbell Automation
 description: ""
 triggers:
-  - trigger: state
-    entity_id:
-      - siren.outer_door_ring
-    from: "on"
+  - trigger: event
+    event_type: doorbell_ringing
 conditions: []
 actions:
-  - action: notify.mobile_app_tanelis_iphone
+  - action: notify.doorbellers
     data:
       message: Doorbell is ringing!
       data:
+        timeout: 30
+        image: "/api/image_proxy/image.outer_door_image"
         push:
+          interruption-level: critical
+          priority: high
+          ttl: 0
           sound:
             name: default
             critical: 1
             volume: 0
-            priority: high
-            ttl: 0
+        tag: doorbell-ringing
         actions:
           - action: open_door
             title: Open door
@@ -81,6 +83,11 @@ actions:
         sequence:
           - action: button.press
             target:
-              entity_id: button.outer_door_open_2
+              entity_id: button.outer_door_open
+          - action: notify.doorbellers
+            data:
+              message: clear_notification
+              data:
+                tag: doorbell-ringing
 mode: parallel
 ```

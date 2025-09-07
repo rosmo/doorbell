@@ -55,6 +55,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     load_platform(hass, 'button', DOMAIN, {}, config)
     # load_platform(hass, 'camera', DOMAIN, {}, config)
     load_platform(hass, 'siren', DOMAIN, {}, config)
+    load_platform(hass, 'image', DOMAIN, {}, config)
 
     # Return boolean to indicate that initialization was successful.
     return True
