@@ -31,11 +31,16 @@ func main() {
 		panic(err)
 	}
 
+	slog.Info("Listening on D-Bus...")
 	err = bell.SetupDBus()
 	if err != nil {
 		panic(err)
 	}
-	slog.Info("Listening on D-Bus...")
+
+	err = bell.StartHomeAssistantReporting()
+	if err != nil {
+		panic(err)
+	}
 
 	slog.Info("Starting HTTP server on port 80...")
 	err = bell.StartHttpServer(80)

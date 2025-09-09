@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log/slog"
 	"net/http"
 	"os"
@@ -43,11 +44,15 @@ type Doorbell struct {
 	ApiToken              string
 	ApiUrl                string
 
+	Ringing bool
+
 	Ringer *gpiocdev.Line
 	Opener *gpiocdev.Line
 
-	LastRing      time.Time
-	RingDoneTimer *time.Timer
+	LastRing                      time.Time
+	RingDoneTimer                 *time.Timer
+	HomeAssistantUpdateTicker     *time.Ticker
+	HomeAssistantUpdateTickerDone chan bool
 
 	DBusConnection *dbus.Conn
 	Http           *http.Client
@@ -76,6 +81,28 @@ func NewDoorbell(config string, opener string, ringer string, simulate bool) *Do
 		Simulate:       simulate,
 		LastRing:       time.Now(),
 	}
+}
+
+func (bell *Doorbell) StartHomeAssistantReporting() error {
+	bell.HomeAssistantUpdateTicker = time.NewTicker(10 * time.Second)
+	bell.HomeAssistantUpdateTickerDone = make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-bell.HomeAssistantUpdateTickerDone:
+				slog.Info(fmt.Sprintf("Home assistant reporter done"))
+				return
+			case <-bell.HomeAssistantUpdateTicker.C:
+				slog.Info("Updating Home Assistant with status...")
+				if bell.Ringing {
+					bell.UpdateHomeAssistantEntity("on")
+				} else {
+					bell.UpdateHomeAssistantEntity("off")
+				}
+			}
+		}
+	}()
+	return nil
 }
 
 func (bell *Doorbell) LoadConfiguration() error {
@@ -112,11 +139,28 @@ func (bell *Doorbell) homeAssistantRequest(method string, path string, body stri
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", bell.HomeAssistantApiToken))
 	req.Header.Add("Content-Type", "application/json")
 
-	resp, err := bell.Http.Do(req)
-	if err != nil {
-		return nil, err
+	retries := 0
+	for {
+		resp, err := bell.Http.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		slog.Info("Home Assistant response", "statuscode", resp.StatusCode)
+		if resp.StatusCode < 200 || resp.StatusCode > 399 {
+			time.Sleep(1 * time.Second)
+			retries++
+			if retries > 5 {
+				responseBody, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					return nil, err
+				}
+				slog.Error("Home Assistant returned error", "body", string(responseBody))
+				return nil, err
+			}
+		} else {
+			return resp, nil
+		}
 	}
-	return resp, nil
 }
 
 func (bell *Doorbell) UpdateHomeAssistantEntity(state string) error {
@@ -159,6 +203,7 @@ func (bell *Doorbell) RingEvent() error {
 	sinceLastRing := now.Sub(bell.LastRing)
 	if sinceLastRing > (5 * time.Second) {
 		slog.Info("Door ringing!")
+		bell.Ringing = true
 
 		err := bell.DBusConnection.Emit("/com/github/rosmo/Doorbell", "com.github.rosmo.Doorbell.BellRinging")
 		if err != nil {
@@ -172,13 +217,15 @@ func (bell *Doorbell) RingEvent() error {
 			bell.RingDoneTimer = time.NewTimer(5 * time.Second)
 			go func() {
 				<-bell.RingDoneTimer.C
+				bell.RingDoneTimer = nil
+
 				err := bell.RingEventFinished()
 				if err != nil {
 					slog.Error("An error was encountered processing ring finished timer!", "error", err)
 				}
-				bell.RingDoneTimer = nil
 			}()
 		}
+		bell.LastRing = now
 	} else {
 		slog.Warn("Supressed superfluous ringing start event...")
 	}
@@ -194,6 +241,7 @@ func (bell *Doorbell) RingEventFinished() error {
 			return nil
 		}
 		slog.Info("Door not ringing anymore.")
+		bell.Ringing = false
 
 		bell.UpdateHomeAssistantEntity("off")
 	} else {
@@ -206,10 +254,10 @@ func (bell *Doorbell) OpenDoor() *dbus.Error {
 	slog.Info("Opening door...")
 	if !bell.Simulate {
 		bell.Opener.SetValue(0)
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second)
 		bell.Opener.SetValue(1)
 	} else {
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 	return nil
 }
